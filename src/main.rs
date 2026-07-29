@@ -46,16 +46,50 @@ fn list_tools() -> serde_json::Value {
     })
 }
 
-async fn post_to_bluesky(text: &str) -> String {
-    let handle = env::var("BLUESKY_IDENTIFIER")
+async fn load_env_credentials() -> (String, String) {
+    let mut handle = env::var("BLUESKY_IDENTIFIER")
         .or_else(|_| env::var("BLUESKY_HANDLE"))
         .or_else(|_| env::var("BSKY_HANDLE"))
         .unwrap_or_default();
 
-    let password = env::var("BLUESKY_APP_PASSWORD")
+    let mut password = env::var("BLUESKY_APP_PASSWORD")
         .or_else(|_| env::var("BLUESKY_PASSWORD"))
         .or_else(|_| env::var("BSKY_PASSWORD"))
         .unwrap_or_default();
+
+    if handle.is_empty() || password.is_empty() {
+        let env_paths = [
+            ".env",
+            "/Users/lodripeter/workspace/peterlodri-sec/bluesky-mcp-rs/.env",
+            "/Users/lodripeter/workspace/bluesky-mcp/.env",
+            "/Users/lodripeter/.env",
+        ];
+        for p in env_paths {
+            if let Ok(content) = std::fs::read_to_string(p) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.starts_with('#') || !line.contains('=') { continue; }
+                    let parts: Vec<&str> = line.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        let k = parts[0].trim();
+                        let v = parts[1].trim().trim_matches('"').trim_matches('\'');
+                        if (k == "BLUESKY_IDENTIFIER" || k == "BLUESKY_HANDLE" || k == "BSKY_HANDLE") && handle.is_empty() {
+                            handle = v.to_string();
+                        }
+                        if (k == "BLUESKY_APP_PASSWORD" || k == "BLUESKY_PASSWORD" || k == "BSKY_PASSWORD") && password.is_empty() {
+                            password = v.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (handle, password)
+}
+
+async fn post_to_bluesky(text: &str) -> String {
+    let (handle, password) = load_env_credentials().await;
 
     if handle.is_empty() || password.is_empty() {
         return format!("bluesky_post: Credentials not set in environment (BLUESKY_IDENTIFIER / BLUESKY_APP_PASSWORD). Simulated post: {}", text);
